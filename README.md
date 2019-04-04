@@ -20,7 +20,7 @@
 ## 运行
 
 ```bash
-$ pipenv run spider.py
+$ pipenv run python spider.py
 Please enter email:
 Please enter password:
 ...

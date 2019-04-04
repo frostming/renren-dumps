@@ -1,10 +1,12 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 import json
 import os
 import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Callable
 import getpass
 import tqdm
 import html
@@ -62,25 +64,29 @@ def download_album(album: Dict[str, Union[str, int]]) -> None:
     if not os.path.isdir(download_dir):
         os.makedirs(download_dir)
 
-    def download_image(image: Dict[str, Union[str, int]]) -> None:
+    def download_image(image: Dict[str, Union[str, int]], callback: Callable[[], None]) -> None:
         url = image['url']
         image_path = os.path.join(download_dir, os.path.basename(url))
         if os.path.isfile(image_path):
+            callback()
             return
         r = requests.get(url)
         r.raise_for_status()
         with open(image_path, "wb") as f:
             f.write(r.content)
+        callback()
 
-    for image in tqdm.tqdm(photo_list, f'Downloading album {album_name}'):
-        download_image(image)
+    # for image in tqdm.tqdm(photo_list, f'Downloading album {album_name}'):
+    #     download_image(image)
 
-    # with ThreadPoolExecutor() as pool:
-    #     pool.map(download_image, re.findall(r'"url":(".+?")', resp.text))
+    with ThreadPoolExecutor() as pool:
+        t = tqdm.tqdm(total=int(album['photoCount']), desc=f'Downloading album {album_name}')
+        for image in photo_list:
+            f = pool.submit(download_image, image, t.update)
 
 
 def main() -> None:
-    login(input("Please enter email:"), getpass.getpass("Please enter password:"))
+    login(input("Please enter email: "), getpass.getpass("Please enter password: "))
     for album in parse_album_list():
         download_album(album)
 
