@@ -1,0 +1,4 @@
+.vscode/
+data/
+.py[cod]
+__pycache__/
