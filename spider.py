@@ -1,21 +1,24 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+import getpass
+import html
 import json
 import os
 import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Union, Callable
-import getpass
-import tqdm
-import html
+from typing import Callable, Dict, List, Union
 
+import html2text
+import tqdm
 from requests import Session
 from selenium.webdriver import Chrome
 
 requests = Session()
-requests.headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.121 Safari/537.36'}
+requests.headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.121 Safari/537.36'
+}
 user_id = None
 
 
@@ -64,7 +67,9 @@ def download_album(album: Dict[str, Union[str, int]]) -> None:
     if not os.path.isdir(download_dir):
         os.makedirs(download_dir)
 
-    def download_image(image: Dict[str, Union[str, int]], callback: Callable[[], None]) -> None:
+    def download_image(
+        image: Dict[str, Union[str, int]], callback: Callable[[], None]
+    ) -> None:
         url = image['url']
         image_path = os.path.join(download_dir, os.path.basename(url))
         if os.path.isfile(image_path):
@@ -80,15 +85,64 @@ def download_album(album: Dict[str, Union[str, int]]) -> None:
     #     download_image(image)
 
     with ThreadPoolExecutor() as pool:
-        t = tqdm.tqdm(total=int(album['photoCount']), desc=f'Downloading album {album_name}')
+        t = tqdm.tqdm(
+            total=int(album['photoCount']), desc=f'Downloading album {album_name}'
+        )
         for image in photo_list:
-            f = pool.submit(download_image, image, t.update)
+            pool.submit(download_image, image, t.update)
+
+
+def parse_article_list() -> List[Dict[str, Union[str, int]]]:
+    url = f"http://blog.renren.com/blog/{user_id}/blogs?categoryId=%20&curpage="
+    i = 0
+    total = 0
+    results = []
+    if not os.path.isdir(f"data/articles-{user_id}"):
+        os.makedirs(f"data/articles-{user_id}")
+    while i == 0 or i * 10 < total:
+        r = requests.get(url + str(i))
+        r.raise_for_status()
+        data = r.json()
+        if not total:
+            total = data['count']
+        results.extend(data['data'])
+        i += 1
+    return results
+
+
+def download_article(article: Dict[str, Union[str, int]]) -> None:
+    url = f"http://blog.renren.com/blog/{user_id}/{int(article['id'])}"
+    title = article['title']
+    datetime = article['createTime']
+    if os.path.isfile(f"data/articles-{user_id}/{title}"):
+        return
+    resp = requests.get(url)
+    resp.raise_for_status()
+    text = re.findall(
+        r'<div id="blogContent" class="blogDetail-content" data-wiki="">([\s\S]*?)</div>',
+        resp.text,
+    )[0].strip()
+    template = """\
+{title}
+=======
+日期: {datetime}
+
+{content}
+"""
+    with open(f"data/articles-{user_id}/{title}.md", "w", encoding="utf-8") as f:
+        f.write(
+            template.format(
+                title=title, datetime=datetime, content=html2text.html2text(text)
+            )
+        )
 
 
 def main() -> None:
     login(input("Please enter email: "), getpass.getpass("Please enter password: "))
     for album in parse_album_list():
         download_album(album)
+    with ThreadPoolExecutor() as pool:
+        pool.map(download_article, parse_article_list())
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ verify_ssl = true
 selenium = "*"
 requests = "*"
 tqdm = "*"
+html2text = "*"
 
 [requires]
 python_version = "3.7"
