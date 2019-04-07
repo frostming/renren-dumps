@@ -173,13 +173,39 @@ class RenrenSpider:
         t = tqdm.tqdm(total=len(articles), desc="Dumping articles")
         with ThreadPoolExecutor() as pool:
             for article in articles:
-                f = pool.submit(self.download_article, article, t.update)
-                print(f.exception())
+                pool.submit(self.download_article, article, t.update)
+
+    def dump_status(self) -> None:
+        url = "http://status.renren.com/GetSomeomeDoingList.do?userId=233274690&curpage="
+        i = 0
+        total = 0
+        results = []
+        while i == 0 or i * 20 < total:
+            r = self.s.get(url + str(i))
+            r.raise_for_status()
+            data = r.json()
+            if not total:
+                total = data["count"]
+            results.extend(data["doingArray"])
+            i += 1
+
+        if not os.path.isdir(f"{self.output_dir}"):
+            os.makedirs(f"{self.output_dir}")
+
+        with open(f"{self.output_dir}/status.md", "w") as f:
+            for item in results:
+                if item.get("location"):
+                    heading = f"{item['dtime']} 在 {item['location']}"
+                else:
+                    heading = item['dtime']
+                content = html2text.html2text(item['content'])
+                f.write(f"### {heading}\n\n{content}\n\n")
 
     def main(self) -> None:
         self.login()
-        # self.dump_albums()
+        self.dump_albums()
         self.dump_articles()
+        self.dump_status()
 
 
 if __name__ == "__main__":
