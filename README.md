@@ -26,9 +26,21 @@ Please enter password:
 ...
 Done
 ```
-相册保存在`data/album-<user_id>`中
+结果默认输出至`output/`
 
+其他用法：
+```
+usage: spider.py [-h] [--driver DRIVER] [-k] [--user USER] [--email EMAIL]
+                 [--password PASSWORD] [-o OUTPUT]
 
-## Todo
-
-- [x] 文章
+optional arguments:
+  -h, --help            show this help message and exit
+  --driver DRIVER       The path to Chrome driver, defaults to envvar
+                        CHROME_DRIVER.
+  -k, --keep            Whether keep the login cookies
+  --user USER           Specify the user ID to parse
+  --email EMAIL         Login email, defaults to envvar RENREN_EMAIL
+  --password PASSWORD   Login password, defaults to envvar RENREN_PASSWD
+  -o OUTPUT, --output OUTPUT
+                        Specify output directory
+```

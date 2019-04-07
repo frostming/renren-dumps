@@ -1,4 +1,6 @@
 .vscode/
-data/
+output/
 .py[cod]
 __pycache__/
+.env
+.session
