@@ -176,7 +176,7 @@ class RenrenSpider:
                 pool.submit(self.download_article, article, t.update)
 
     def dump_status(self) -> None:
-        url = "http://status.renren.com/GetSomeomeDoingList.do?userId=233274690&curpage="
+        url = f"http://status.renren.com/GetSomeomeDoingList.do?userId={self.user_id}&curpage="
         i = 0
         total = 0
         results = []
@@ -192,7 +192,7 @@ class RenrenSpider:
         if not os.path.isdir(f"{self.output_dir}"):
             os.makedirs(f"{self.output_dir}")
 
-        with open(f"{self.output_dir}/status.md", "w") as f:
+        with open(f"{self.output_dir}/status.md", "w", encoding="utf-8") as f:
             for item in results:
                 if item.get("location"):
                     heading = f"{item['dtime']} 在 {item['location']}"
