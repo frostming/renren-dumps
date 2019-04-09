@@ -1,27 +1,45 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import argparse
+import datetime
 import getpass
 import html
 import json
 import os
 import pickle
+import random
 import re
-import sys
 import time
+import webbrowser
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List, Union
 
 import html2text
 import tqdm
 from requests import Session
-from selenium.webdriver import Chrome
 
 JSONType = Dict[str, Union[str, int]]
 SimpleCallback = Callable[[], None]
 
 
+def encrypt_string(enc, mo, s):
+    b = 0
+    pos = 0
+    for ch in s:
+        b += ord(ch) << pos
+        pos += 8
+
+    crypt = pow(b, enc, mo)
+
+    return f'{crypt:x}'
+
+
 class RenrenSpider:
+    ENCRYPT_KEY_URL = "http://login.renren.com/ajax/getEncryptKey"
+    LOGIN_URL = "http://www.renren.com/ajaxLogin/login?1=1&uniqueTimestamp={ts}"
+    ICODE_URL = "http://icode.renren.com/getcode.do?t=web_login&rnd={rnd}"
+    MAX_RETRY = 3
+
     def __init__(self, args: argparse.Namespace) -> None:
         self._user_id = args.user
         self.email = args.email
@@ -44,38 +62,66 @@ class RenrenSpider:
         """login and get cookies."""
         if self.keep and os.path.isfile(".session"):
             with open(".session", "rb") as f:
-                self._user_id = int(f.readline().strip().decode())
                 self.s.cookies = pickle.load(f)
+            if not self._user_id:
+                self._user_id = self.s.cookies["id"]
             return
 
-        email, password = self.email, self.password
-        if not email:
-            email = input("Please enter email: ")
-        if not password:
-            password = getpass.getpass("Please enter password: ")
-        browser = Chrome(self.driver)
-        browser.get("http://renren.com")
-        browser.find_element_by_id("email").send_keys(email)
-        browser.find_element_by_id("password").send_keys(password)
-        browser.find_element_by_id("login").click()
-        for _ in range(30):
-            if browser.current_url != "http://renren.com/":
-                break
-            time.sleep(1)
-        else:
-            browser.close()
-            sys.exit("Login email or password is wrong!")
-        cookies = browser.get_cookies()
-        for cookie in cookies:
-            self.s.cookies[cookie["name"]] = cookie["value"]
-        print(browser.current_url)
+        return self._login()
+
+    def _login(
+        self,
+        retry: int = 0,
+        icode: str = "",
+        re: int = 0,
+        rn: int = 0,
+        rk: str = "",
+    ) -> None:
+        if retry > 3:
+            raise RuntimeError("Login failed!")
+        if not retry:
+            self.s.cookies.clear()
+            enc_data = self.s.get(self.ENCRYPT_KEY_URL).json()
+            re = int(enc_data['e'], 16)
+            rn = int(enc_data['n'], 16)
+            rk = enc_data['rkey']
+        if not self.email:
+            self.email = input("Please enter email: ")
+        if not self.password:
+            self.password = getpass.getpass("Please enter password: ")
+        payload = {
+            'email': self.email,
+            'password': encrypt_string(re, rn, self.password),
+            'rkey': rk,
+            'key_id': 1,
+            'captcha_type': 'web_login',
+            'icode': icode,
+        }
+        now = datetime.datetime.now()
+        ts = '{year}{month}{weekday}{hour}{second}{ms}'.format(
+            year=now.year,
+            month=now.month - 1,
+            weekday=(now.weekday() + 1) % 7,
+            hour=now.hour,
+            second=now.second,
+            ms=int(now.microsecond / 1000),
+        )
+
+        login_data = self.s.post(self.LOGIN_URL.format(ts=ts), data=payload).json()
+        if not login_data.get('code', False) or 'id' not in self.s.cookies:
+            resp = self.s.get_url(self.ICODE_URL.format(rnd=random.random()))
+            with open("icode.jpg", "wb") as f:
+                f.write(resp.content)
+            webbrowser.open("icode.jpg")
+            icode = input("Please input the iCode shown on browser: ")
+            time.sleep(retry + 1)
+            return self._login(retry + 1, icode, re, rn, rk)
+
         if not self._user_id:
-            self._user_id = int(re.findall(r"/(\d+)/?$", browser.current_url)[0])
+            self._user_id = self.s.cookies["id"]
         if self.keep:
             with open(".session", "wb") as f:
-                f.write(f"{self.user_id}\n".encode())
                 pickle.dump(self.s.cookies, f)
-        browser.close()
 
     def parse_album_list(self) -> List[JSONType]:
         collections_url = f"http://photo.renren.com/photo/{self.user_id}/albumlist/v7?offset=0&limit=40&showAll=1"
@@ -144,7 +190,7 @@ class RenrenSpider:
         url = f"http://blog.renren.com/blog/{self.user_id}/{int(article['id'])}"
         title = article["title"]
         datetime = article["createTime"]
-        if os.path.isfile(f"{self.output_dir}/articles/{title}"):
+        if os.path.isfile(f"{self.output_dir}/articles/{title}.md"):
             callback()
             return
         resp = self.s.get(url)
@@ -160,7 +206,7 @@ class RenrenSpider:
 
 {content}
 """
-        with open(f"{self.output_dir}/articles/{title}", "w", encoding="utf-8") as f:
+        with open(f"{self.output_dir}/articles/{title}.md", "w", encoding="utf-8") as f:
             f.write(
                 template.format(
                     title=title, datetime=datetime, content=html2text.html2text(text)
