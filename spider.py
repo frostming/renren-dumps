@@ -2,24 +2,27 @@
 # -*- coding: utf-8 -*-
 import argparse
 import datetime
-import getpass
 import html
 import json
 import os
 import pickle
 import random
 import re
-import time
-import webbrowser
-from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List, Union
 
 import html2text
-import tqdm
 from requests import Session
 
 JSONType = Dict[str, Union[str, int]]
 SimpleCallback = Callable[[], None]
+
+
+class LoginFailed(Exception):
+    pass
+
+
+class iCodeRequired(Exception):
+    pass
 
 
 def encrypt_string(enc, mo, s):
@@ -40,59 +43,30 @@ class RenrenSpider:
     ICODE_URL = "http://icode.renren.com/getcode.do?t=web_login&rnd={rnd}"
     MAX_RETRY = 3
 
-    def __init__(self, args: argparse.Namespace) -> None:
-        self._user_id = args.user
-        self.email = args.email
-        self.password = args.password
-        self.keep = args.keep
-        self.output_dir = args.output
-        self.driver = args.driver
+    def __init__(self) -> None:
+        self.ui = None
+        self.user_id = None
+        self.output_dir = None
         self.s = Session()
         self.s.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.121 Safari/537.36"
         }
+        self.re = None
+        self.rn = None
+        self.rk = None
 
-    @property
-    def user_id(self):
-        if not self._user_id:
-            raise RuntimeError("Please login first!")
-        return self._user_id
-
-    def login(self) -> None:
-        """login and get cookies."""
-        if self.keep and os.path.isfile(".session"):
-            with open(".session", "rb") as f:
-                self.s.cookies = pickle.load(f)
-            if not self._user_id:
-                self._user_id = self.s.cookies["id"]
-            return
-
-        return self._login()
-
-    def _login(
-        self,
-        retry: int = 0,
-        icode: str = "",
-        re: int = 0,
-        rn: int = 0,
-        rk: str = "",
-    ) -> None:
-        if retry > 3:
-            raise RuntimeError("Login failed!")
-        if not retry:
+    def login(self, email: str, password: str, icode: str = "", keep: bool = False) -> None:
+        if not all([self.re, self.rn, self.rk]):
             self.s.cookies.clear()
             enc_data = self.s.get(self.ENCRYPT_KEY_URL).json()
-            re = int(enc_data['e'], 16)
-            rn = int(enc_data['n'], 16)
-            rk = enc_data['rkey']
-        if not self.email:
-            self.email = input("Please enter email: ")
-        if not self.password:
-            self.password = getpass.getpass("Please enter password: ")
+            self.re = int(enc_data['e'], 16)
+            self.rn = int(enc_data['n'], 16)
+            self.rk = enc_data['rkey']
+
         payload = {
-            'email': self.email,
-            'password': encrypt_string(re, rn, self.password),
-            'rkey': rk,
+            'email': email,
+            'password': encrypt_string(self.re, self.rn, password),
+            'rkey': self.rk,
             'key_id': 1,
             'captcha_type': 'web_login',
             'icode': icode,
@@ -109,19 +83,35 @@ class RenrenSpider:
 
         login_data = self.s.post(self.LOGIN_URL.format(ts=ts), data=payload).json()
         if not login_data.get('code', False) or 'id' not in self.s.cookies:
-            resp = self.s.get_url(self.ICODE_URL.format(rnd=random.random()))
-            with open("icode.jpg", "wb") as f:
-                f.write(resp.content)
-            webbrowser.open("icode.jpg")
-            icode = input("Please input the iCode shown on browser: ")
-            time.sleep(retry + 1)
-            return self._login(retry + 1, icode, re, rn, rk)
+            raise iCodeRequired(login_data.get('failDescription'))
 
-        if not self._user_id:
-            self._user_id = self.s.cookies["id"]
-        if self.keep:
+        if not self.user_id:
+            self.user_id = self.s.cookies["id"]
+        if keep:
             with open(".session", "wb") as f:
                 pickle.dump(self.s.cookies, f)
+
+    def set_params(self, *, user_id=None, output_dir=None) -> None:
+        if user_id:
+            self.user_id = user_id
+        self.output_dir = output_dir
+
+    def get_icode_image(self) -> bytes:
+        resp = self.s.get(self.ICODE_URL.format(rnd=random.random()))
+        return resp.content
+
+    def is_login(self) -> bool:
+        """login and get cookies."""
+        if not os.path.isfile(".session"):
+            return False
+        with open(".session", "rb") as f:
+            self.s.cookies = pickle.load(f)
+        self.s.cookies.clear_expired_cookies()
+        if "id" not in self.s.cookies:
+            return False
+        if not self.user_id:
+            self.user_id = self.s.cookies["id"]
+        return True
 
     def parse_album_list(self) -> List[JSONType]:
         collections_url = f"http://photo.renren.com/photo/{self.user_id}/albumlist/v7?offset=0&limit=40&showAll=1"
@@ -156,12 +146,11 @@ class RenrenSpider:
                 f.write(r.content)
             callback()
 
-        with ThreadPoolExecutor() as pool:
-            t = tqdm.tqdm(
-                total=int(album["photoCount"]), desc=f"Dumping album {album_name}"
-            )
-            for image in photo_list:
-                pool.submit(download_image, image, t.update)
+        t = self.ui.progressbar(
+            total=int(album["photoCount"]), desc=f"Dumping album {album_name}"
+        )
+        for image in photo_list:
+            download_image(image, t.update)
 
     def dump_albums(self) -> None:
         for album in self.parse_album_list():
@@ -216,10 +205,9 @@ class RenrenSpider:
 
     def dump_articles(self) -> None:
         articles = self.parse_article_list()
-        t = tqdm.tqdm(total=len(articles), desc="Dumping articles")
-        with ThreadPoolExecutor() as pool:
-            for article in articles:
-                pool.submit(self.download_article, article, t.update)
+        t = self.ui.progressbar(total=len(articles), desc="Dumping articles")
+        for article in articles:
+            self.download_article(article, t.update)
 
     def dump_status(self) -> None:
         url = f"http://status.renren.com/GetSomeomeDoingList.do?userId={self.user_id}&curpage="
@@ -239,6 +227,7 @@ class RenrenSpider:
             os.makedirs(f"{self.output_dir}")
 
         with open(f"{self.output_dir}/status.md", "w", encoding="utf-8") as f:
+            progressbar = self.ui.progressbar(total=len(results), desc="Dumping status")
             for item in results:
                 if item.get("location"):
                     heading = f"{item['dtime']} 在 {item['location']}"
@@ -246,9 +235,10 @@ class RenrenSpider:
                     heading = item['dtime']
                 content = html2text.html2text(item['content'])
                 f.write(f"### {heading}\n\n{content}\n\n")
+                progressbar.update()
 
-    def main(self) -> None:
-        self.login()
+    def main(self, ui) -> None:
+        self.ui = ui
         self.dump_albums()
         self.dump_articles()
         self.dump_status()
@@ -256,11 +246,6 @@ class RenrenSpider:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--driver",
-        default=os.getenv("CHROME_DRIVER"),
-        help="The path to Chrome driver, defaults to envvar CHROME_DRIVER.",
-    )
     parser.add_argument(
         "-k",
         "--keep",

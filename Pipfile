@@ -8,8 +8,9 @@ flake8 = "*"
 
 [packages]
 requests = "*"
-tqdm = "*"
 html2text = "*"
+pyside2 = "*"
+pyinstaller = "*"
 
 [requires]
 python_version = "3.7"

@@ -4,3 +4,7 @@ output/
 __pycache__/
 .env
 .session
+.idea/
+build/
+dist/
+*.spec
