@@ -10,37 +10,6 @@
 可能这些回忆，你也并不想再去打开它。但话说回来，想不想看是一回事，能不能再看到是另一回事。我的数据自己做主，快使用这个脚本吧！
 
 
-## 依赖
+## 安装与使用
 
-* Python >= 3.6
-* Pipenv:  `$ pip install --upgrade pipenv`
-* 安装:  `$ pipenv install`
-* Chrome Driver
-
-## 运行
-
-```bash
-$ pipenv run python spider.py
-Please enter email:
-Please enter password:
-...
-Done
-```
-结果默认输出至`output/`
-
-其他用法：
-```
-usage: spider.py [-h] [--driver DRIVER] [-k] [--user USER] [--email EMAIL]
-                 [--password PASSWORD] [-o OUTPUT]
-
-optional arguments:
-  -h, --help            show this help message and exit
-  --driver DRIVER       The path to Chrome driver, defaults to envvar
-                        CHROME_DRIVER.
-  -k, --keep            Whether keep the login cookies
-  --user USER           Specify the user ID to parse
-  --email EMAIL         Login email, defaults to envvar RENREN_EMAIL
-  --password PASSWORD   Login password, defaults to envvar RENREN_PASSWD
-  -o OUTPUT, --output OUTPUT
-                        Specify output directory
-```
+到 https://github.com/frostming/renren-dumps/releases 下载最新的安装包(.exe) 安装。安装完成后到安装目录下双击运行renren_dumps.exe即可
