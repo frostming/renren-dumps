@@ -8,6 +8,7 @@ import os
 import pickle
 import random
 import re
+import lxml.html
 from typing import Callable, Dict, List, Union
 
 import html2text
@@ -40,6 +41,7 @@ def encrypt_string(enc, mo, s):
 class RenrenSpider:
     ENCRYPT_KEY_URL = "http://login.renren.com/ajax/getEncryptKey"
     LOGIN_URL = "http://www.renren.com/ajaxLogin/login?1=1&uniqueTimestamp={ts}"
+    LOGIN_3G_URL = "http://3g.renren.com/login.do?autoLogin=true&"
     ICODE_URL = "http://icode.renren.com/getcode.do?t=web_login&rnd={rnd}"
     MAX_RETRY = 3
 
@@ -84,7 +86,13 @@ class RenrenSpider:
         login_data = self.s.post(self.LOGIN_URL.format(ts=ts), data=payload).json()
         if not login_data.get('code', False) or 'id' not in self.s.cookies:
             raise iCodeRequired(login_data.get('failDescription'))
-
+        payload = {
+            'ref': 'http://m.renren.com/q.do?null',
+            'email': email,
+            'password': password
+        }
+        r = self.s.post(self.LOGIN_3G_URL, data=payload)
+        assert r.ok, "3G login failed"
         if not self.user_id:
             self.user_id = self.s.cookies["id"]
         if keep:
@@ -157,26 +165,30 @@ class RenrenSpider:
             self.download_album(album)
 
     def parse_article_list(self) -> List[JSONType]:
-        url = (
-            f"http://blog.renren.com/blog/{self.user_id}/blogs?categoryId=%20&curpage="
-        )
-        i = 0
-        total = 0
+        start_url = f'http://3g.renren.com/blog/wmyblog.do?id={self.user_id}'
         results = []
         if not os.path.isdir(f"{self.output_dir}/articles"):
             os.makedirs(f"{self.output_dir}/articles")
-        while i == 0 or i * 10 < total:
-            r = self.s.get(url + str(i))
-            r.raise_for_status()
-            data = r.json()
-            if not total:
-                total = data["count"]
-            results.extend(data["data"])
-            i += 1
+
+        def _parse_one_page(url):
+            resp = self.s.get(url)
+            tree = lxml.html.fromstring(resp.text)
+            for element in tree.xpath('//div[@class="list"]/div[not(@class)]'):
+                item = {
+                    'title': element.xpath('a/text()')[0].strip(),
+                    'url': element.xpath('a/@href')[0].strip(),
+                    'createTime': element.xpath('p/text()')[0].strip()
+                }
+                results.append(item)
+            next_url = tree.xpath('//a[@title="下一页"]/@href')
+            if next_url:
+                _parse_one_page(next_url[0].strip())
+
+        _parse_one_page(start_url)
         return results
 
     def download_article(self, article: JSONType, callback: SimpleCallback) -> None:
-        url = f"http://blog.renren.com/blog/{self.user_id}/{int(article['id'])}"
+        url = article["url"].replace('flag=0', 'flag=1')
         title = article["title"]
         datetime = article["createTime"]
         if os.path.isfile(f"{self.output_dir}/articles/{title}.md"):
@@ -185,7 +197,7 @@ class RenrenSpider:
         resp = self.s.get(url)
         resp.raise_for_status()
         text = re.findall(
-            r'<div id="blogContent" class="blogDetail-content" data-wiki="">([\s\S]*?)</div>',
+            r'<div class="con">([\s\S]*?)</div>',
             resp.text,
         )[0].strip()
         template = """\

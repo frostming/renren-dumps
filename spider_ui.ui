@@ -16,7 +16,7 @@
    </font>
   </property>
   <property name="windowTitle">
-   <string>人人网备份工具-V1.0</string>
+   <string>人人网备份工具-V1.1</string>
   </property>
   <property name="windowIcon">
    <iconset resource="resource.qrc">

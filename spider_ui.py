@@ -117,7 +117,7 @@ class Ui_Dialog(object):
         QtCore.QMetaObject.connectSlotsByName(Dialog)
 
     def retranslateUi(self, Dialog):
-        Dialog.setWindowTitle(QtWidgets.QApplication.translate("Dialog", "人人网备份工具-V1.0", None, -1))
+        Dialog.setWindowTitle(QtWidgets.QApplication.translate("Dialog", "人人网备份工具-V1.1", None, -1))
         self.loginLabel.setText(QtWidgets.QApplication.translate("Dialog", "请登录", None, -1))
         self.emailInput.setPlaceholderText(QtWidgets.QApplication.translate("Dialog", "邮箱", None, -1))
         self.passwordInput.setPlaceholderText(QtWidgets.QApplication.translate("Dialog", "密码", None, -1))

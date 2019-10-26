@@ -5,12 +5,13 @@ verify_ssl = true
 
 [dev-packages]
 flake8 = "*"
+pyinstaller = "*"
 
 [packages]
 requests = "*"
 html2text = "*"
 pyside2 = "*"
-pyinstaller = "*"
+lxml = "*"
 
 [requires]
 python_version = "3.7"
