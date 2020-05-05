@@ -223,16 +223,42 @@ class RenrenSpider:
 
     def dump_status(self) -> None:
         url = f"http://status.renren.com/GetSomeomeDoingList.do?userId={self.user_id}&curpage="
+        
+        status_url="http://comment.renren.com/comment/xoa2?type=status&entryId={0}&entryOwnerId={1}"
         i = 0
         total = 0
         results = []
+        statusDict={}
+        comentsDic={}
+        
         while i == 0 or i * 20 < total:
             r = self.s.get(url + str(i))
             r.raise_for_status()
             data = r.json()
             if not total:
                 total = data["count"]
-            results.extend(data["doingArray"])
+            tempResult=data['doingArray']
+            results.extend(tempResult)
+
+            for item in tempResult:
+                if item.get("location"):
+                    heading = f"{item['dtime']} 在 {item['location']}"
+                else:
+                    heading = item['dtime']
+                content = html2text.html2text(item['content'])
+                statusDict[heading]=content
+                print(f"{heading}{content}")
+        
+                statusId=html2text.html2text(str(int(item['id'])))
+                statusInfo=self.s.get(status_url.format(statusId,self.user_id))
+                statusInfo.raise_for_status();
+                cData=statusInfo.json()
+                if('comments' in cData):
+                    commentData=(statusInfo.json())['comments']
+                    comentsDic[heading]=commentData;
+                    #print(commentData)
+                else:
+                    print(f"no comments") 
             i += 1
 
         if not os.path.isdir(f"{self.output_dir}"):
@@ -240,14 +266,25 @@ class RenrenSpider:
 
         with open(f"{self.output_dir}/status.md", "w", encoding="utf-8") as f:
             progressbar = self.ui.progressbar(total=len(results), desc="Dumping status")
-            for item in results:
-                if item.get("location"):
-                    heading = f"{item['dtime']} 在 {item['location']}"
-                else:
-                    heading = item['dtime']
-                content = html2text.html2text(item['content'])
-                f.write(f"### {heading}\n\n{content}\n\n")
-                progressbar.update()
+            sorted(statusDict.keys())
+
+
+            for time,status in statusDict.items():
+                f.write(f"### {time}\n\n{status}")
+                if(comentsDic.get(time)):
+                    for commentData in comentsDic.get(time):
+                        commentTime=html2text.html2text(commentData['time'])
+                        commentAuthorId=html2text.html2text(str(commentData['authorId']))
+                        commentAuthorName=html2text.html2text(commentData['authorName'])
+                        comment=html2text.html2text(commentData['content'])
+                        comment=f"    -- | {commentAuthorName} | {comment} | {commentTime} | {commentAuthorId} ";
+                        comment=comment.replace('\n','');
+                        f.write(f"{comment}\n\n")
+                    f.write(f"\n\n")
+            progressbar.update()
+        
+        print("dump end\n")
+        
 
     def main(self, ui) -> None:
         self.ui = ui
